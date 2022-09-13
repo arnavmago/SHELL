@@ -546,8 +546,74 @@ void History(char *Input[])
 
 void jobs(char *Input[])
 {
-    char Processes[NumBGP][BASE_LEN];
-    
+    FILE *ProcessInfo;
+    int a, i, s, r;
+
+    int NumArgs, NumFlags;
+
+    for (NumArgs = 0; Input[NumArgs] != NULL; NumArgs++)
+        ;
+
+    for (i = 1; i < NumArgs; i++)
+    {
+        if (Input[i][0] == '-')
+        {
+            NumFlags++;
+            if (strchr(Input[i], 's') != NULL)
+                s++;
+            if (strchr(Input[i], 'r') != NULL)
+                r++;
+        }
+    }
+
+    for (a = 0; a < NumBGP; a++)
+    {
+        char ProcessPath[BASE_LEN];
+        char ProcessDetails[BIG_LEN];
+        char *ProcessDetailsParsed[BASE_LEN] = {NULL};
+        i = 0;
+        if (BGProcesses[a]->PID != -1)
+        {
+            sprintf(ProcessPath, "/proc/%d/stat", (int)BGProcesses[a]->PID);
+
+            ProcessInfo = fopen(ProcessPath, "r");
+
+            if (ProcessInfo == NULL)
+            {
+                printf("Error - jobs: File error\n");
+                return;
+            }
+            fread(ProcessDetails, BIG_LEN, 1, ProcessInfo);
+            fclose(ProcessInfo);
+
+            ProcessDetailsParsed[i] = strtok(ProcessDetails, " ");
+            while (ProcessDetailsParsed[i] != NULL)
+            {
+                i++;
+                ProcessDetailsParsed[i] = strtok(NULL, " ");
+            }
+
+            if (!strcmp(ProcessDetailsParsed[2], "R") && (r || (!r && !s)))
+                printf("[%d] Running %s [%d]\n", a + 1, BGProcesses[a]->name, BGProcesses[a]->PID);
+            else if (s || (!r && !s))
+                printf("[%d] Stopped %s [%d]\n", a + 1, BGProcesses[a]->name, BGProcesses[a]->PID);
+        }
+    }
+}
+
+void sig(char *Input[])
+{
+    int SigPass = atoi(Input[2]);
+    int ProcessPID = BGProcesses[atoi(Input[1]) - 1]->PID;
+
+    if (atoi(Input[1]) > NumBGP)
+    {
+        printf("Error - sig: Process doesn't exist\n");
+        return;
+    }
+
+    kill(ProcessPID, SigPass);
+    return;
 }
 
 void ExitFunction()
