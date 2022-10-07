@@ -10,6 +10,8 @@ extern char Input[];
 extern char HomeFolder[];
 extern ProcInfo *BGProcesses[];
 extern int NumBGP;
+extern ProcInfo *CurrentFGP;
+extern int OGShell;
 
 void Permissions(struct stat *File)
 {
@@ -263,7 +265,7 @@ void InitHistory(char Input[])
 
 void InitBackgroundProcesses()
 {
-    // Initializing the array tha will hold the names and PIDs of all the background processes
+    // Initializing the array that will hold the names and PIDs of all the background processes
     // We set all the PIDs as -1 initially to show that the current index hasnt been used to store any information
     for (int i = 0; i < MaxNumBGP; i++)
     {
@@ -278,6 +280,7 @@ void AddBGP(int PID, char Input[])
     // Adds the information of the background process at the first available location in the array (if there is space for more)
     if (NumBGP < MaxNumBGP)
     {
+        printf("added\n");
         strcpy(BGProcesses[NumBGP]->name, Input);
         BGProcesses[NumBGP]->PID = PID;
         NumBGP++;
@@ -315,4 +318,41 @@ handler *InitSigHandler(int SigInfo, handler *SigHandler)
     if (Error == -1)
         write(1, "Error - Signal Handler: Initialization error\n", strlen("Error - Signal Handler: Initialization error\n"));
     return (InputAction.sa_sigaction);
+}
+
+void ControlC(int Sig, siginfo_t *Info, void *Pointer)
+{
+    // Since Ctrl+C just exits the current foreground process, we just return
+    return;
+}
+
+void ControlZ(int Sig, siginfo_t *Info, void *Pointer)
+{
+    printf("reached here\n");
+
+    int PID = getpid();
+    // Compare the PID of the current process to the PID of the shell itself, if not equal then return
+    if (PID != OGShell)
+        return;
+
+    // CurrentFGP holds the information about the running foreground process, so if its -1 that means there is no current foreground process
+    if (CurrentFGP->PID == -1)
+        return;
+
+    printf("reached here\n");
+
+    // Set the Group PID of the current process to 0 to make it a background process
+    setpgid(CurrentFGP->PID, 0);
+
+    // Send the SIGTSTP signal to stop the process
+    int Error = kill(CurrentFGP->PID, SIGTSTP);
+    if (Error == -1)
+    {
+        printf("Error - Ctrl+Z: Couldn't stop the process\n");
+        return;
+    }
+
+    // Add the process to the array that holds the information about all the background processes as it is now a background process
+    AddBGP(CurrentFGP->PID, CurrentFGP->name);
+    return;
 }

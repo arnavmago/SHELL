@@ -55,6 +55,12 @@ handler *InitSigHandler(int signum, handler *HandlerFunction);
 void ChildHandler(int sig, siginfo_t *info, void *vp);
 // Function that gets and prints the exit information of the background processes
 
+void ControlC(int sig, siginfo_t *info, void *vp);
+// Function that handles if Ctrl+C is pressed
+
+void ControlZ(int sig, siginfo_t *info, void *vp);
+// Function that handles if Ctrl+Z is pressed
+
 void fg(char *Input[]);
 // Function that brings a background process into the foreground
 

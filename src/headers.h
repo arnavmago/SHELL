@@ -19,6 +19,8 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/signal.h>
+#include <termios.h>
+#include <ctype.h>
 
 typedef void handler(int signum, siginfo_t *info, void *vp);
 // Used for signal handling

@@ -10,6 +10,7 @@ extern char Input[];
 extern char HomeFolder[];
 extern int NumBGP;
 extern ProcInfo *BGProcesses[];
+extern ProcInfo *CurrentFGP;
 
 // Defined new variables that are needed
 char PrevDir[BASE_LEN];
@@ -551,9 +552,11 @@ void jobs(char *Input[])
 
     int NumArgs, NumFlags;
 
+    // Count the number of arguments passed with jobs
     for (NumArgs = 0; Input[NumArgs] != NULL; NumArgs++)
         ;
 
+    // Check what flags have been given, if any
     for (i = 1; i < NumArgs; i++)
     {
         if (Input[i][0] == '-')
@@ -566,59 +569,125 @@ void jobs(char *Input[])
         }
     }
 
-    for (a = 0; a < NumBGP; a++)
+    // Make an array that will hold all the background process' information without the ones with PID -1
+    ProcInfo *Sorted[MaxNumBGP];
+    int JobNums[MaxNumBGP];
+    int count = 0;
+
+    for (int i = 0; i < MaxNumBGP; i++)
+    {
+        Sorted[i] = (ProcInfo *)malloc(sizeof(ProcInfo));
+        if (BGProcesses[i]->PID != -1)
+        {
+            strcpy(Sorted[count]->name, BGProcesses[i]->name);
+            Sorted[count]->PID = BGProcesses[i]->PID;
+            JobNums[count] = i + 1;
+            count++;
+        }
+    }
+
+    // Sorting the background processes alphabetically
+    for (int i = 0; i < count; i++)
+    {
+        for (int j = 0; j < count - i - 1; j++)
+        {
+            if (strcmp(Sorted[j]->name, Sorted[j + 1]->name) > 0)
+            {
+                char NameSwap[BASE_LEN];
+                int PIDSwap, NumSwap;
+
+                strcpy(NameSwap, Sorted[j]->name);
+                strcpy(Sorted[j]->name, Sorted[j + 1]->name);
+                strcpy(Sorted[j + 1]->name, NameSwap);
+
+                PIDSwap = Sorted[j]->PID;
+                Sorted[j]->PID = Sorted[j + 1]->PID;
+                Sorted[j + 1]->PID = PIDSwap;
+
+                NumSwap = JobNums[j];
+                JobNums[j] = JobNums[j + 1];
+                JobNums[j + 1] = NumSwap;
+            }
+        }
+    }
+
+    // We iterate through our sorted array that holds the information about the currently running background processes
+    for (a = 0; a < count; a++)
     {
         char ProcessPath[BASE_LEN];
         char ProcessDetails[BIG_LEN];
         char *ProcessDetailsParsed[BASE_LEN] = {NULL};
         i = 0;
-        if (BGProcesses[a]->PID != -1)
+
+        // Setting the path to read from proc/pid/stat file
+        sprintf(ProcessPath, "/proc/%d/stat", (int)Sorted[a]->PID);
+
+        ProcessInfo = fopen(ProcessPath, "r");
+
+        // Open the proc/pid/stat file and read its information into a string
+        if (ProcessInfo == NULL)
         {
-            sprintf(ProcessPath, "/proc/%d/stat", (int)BGProcesses[a]->PID);
-
-            ProcessInfo = fopen(ProcessPath, "r");
-
-            if (ProcessInfo == NULL)
-            {
-                printf("Error - jobs: File error\n");
-                return;
-            }
-            fread(ProcessDetails, BIG_LEN, 1, ProcessInfo);
-            fclose(ProcessInfo);
-
-            ProcessDetailsParsed[i] = strtok(ProcessDetails, " ");
-            while (ProcessDetailsParsed[i] != NULL)
-            {
-                i++;
-                ProcessDetailsParsed[i] = strtok(NULL, " ");
-            }
-
-            if (!strcmp(ProcessDetailsParsed[2], "R") && (r || (!r && !s)))
-                printf("[%d] Running %s [%d]\n", a + 1, BGProcesses[a]->name, BGProcesses[a]->PID);
-            else if (s || (!r && !s))
-                printf("[%d] Stopped %s [%d]\n", a + 1, BGProcesses[a]->name, BGProcesses[a]->PID);
+            printf("Error - jobs: File error\n");
+            return;
         }
+        fread(ProcessDetails, BIG_LEN, 1, ProcessInfo);
+        fclose(ProcessInfo);
+
+        // Split the read information on spaces to get inidividual data points as individual words
+        ProcessDetailsParsed[i] = strtok(ProcessDetails, " ");
+        while (ProcessDetailsParsed[i] != NULL)
+        {
+            i++;
+            ProcessDetailsParsed[i] = strtok(NULL, " ");
+        }
+
+        // We check if the process is running or if it is stopped
+        if (!strcmp(ProcessDetailsParsed[2], "T") && (r || (!r && !s)))
+            printf("[%d] Stopped %s [%d]\n", JobNums[a], Sorted[a]->name, Sorted[a]->PID);
+        else if (s || (!r && !s))
+            printf("[%d] Running %s [%d]\n", JobNums[a], Sorted[a]->name, Sorted[a]->PID);
+    }
+
+    for (int i = 0; i < MaxNumBGP; i++)
+    {
+        free(Sorted[i]);
     }
 }
 
 void sig(char *Input[])
 {
-    int SigPass = atoi(Input[2]);
-    int ProcessPID = BGProcesses[atoi(Input[1]) - 1]->PID;
-
-    if (atoi(Input[1]) > NumBGP)
+    // Checking if the job number passed is a viable job number
+    if (atoi(Input[1]) > NumBGP || atoi(Input[1]) == 0)
     {
         printf("Error - sig: Process doesn't exist\n");
         return;
     }
 
-    kill(ProcessPID, SigPass);
+    // Convert the signal argument to an integer
+    int SigPass = atoi(Input[2]);
+
+    // Access the job number passed (in the array that holds the informtaion about all background processes)
+    int ProcessPID = BGProcesses[atoi(Input[1]) - 1]->PID;
+    if (ProcessPID == -1)
+    {
+        printf("Error - sig: Invalid process\n");
+        return;
+    }
+    int Error = kill(ProcessPID, SigPass);
+
+    // If passing the signal to the job fails
+    if (Error == -1)
+    {
+        printf("Error - sig: Couldnt kill the process\n");
+    }
     return;
 }
 
 void ExitFunction()
 {
+    // kills all background processes, clears the terminal and exits the shell
     KillBGP();
+    free(CurrentFGP);
     fputs("\033c", stdout);
     exit(0);
 }

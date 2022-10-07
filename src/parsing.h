@@ -13,6 +13,25 @@ void UnderstandInput(char *Input);
 void ExecuteInputCommand(char *Input, int BG);
 // Execute functions based on the parsed input
 
+void CheckBGP(char *Input);
+// Executes functions when they are background processes
+
+void PipedProcess(char *Input);
+// Handles if the input command has pipes
+
+int LargestCommonSubsequence(char NameHolder[][1000], int NumFiles, int shortest);
+// Finds the longest sequence of characters common in all the given strings
+
+void enableRawMode();
+void disableRawMode();
+// Function that will autocomplete the input the user gives based on whatever partially completed word is written when the tab key is clicked
+
+void NewFgets();
+// Function that replaces fgets to accept the input string (due to autocomplete)
+
+void CompleteInput();
+// Function that handles autocompletion
+
 #define BASE_LEN 1000
 #define BIG_LEN 5000
 #define MaxNumBGP 1000

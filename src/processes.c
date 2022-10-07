@@ -9,6 +9,7 @@ extern char CurrentDir[];
 extern char Input[];
 extern char HomeFolder[];
 extern ProcInfo *BGProcesses[];
+extern ProcInfo *CurrentFGP;
 
 // Defined new variables that are needed
 struct timeval TimeTaken;
@@ -56,11 +57,17 @@ void ForegroundProcess(char *Input[])
     // If the current process is the parent process
     else
     {
+        strcpy(CurrentFGP->name, Process);
+        CurrentFGP->PID = PID;
+
         // Wait for the child process to terminate
         waitpid(PID, &Status, WUNTRACED);
 
         // Get the time for when the process execution ends
         gettimeofday(&TimeTaken, NULL);
+
+        strcpy(CurrentFGP->name, "");
+        CurrentFGP->PID = -1;
 
         // Using the 2 times, we calculate how long the process took
         FGPEnd = TimeTaken.tv_sec * 1000000 + TimeTaken.tv_usec;
@@ -125,6 +132,8 @@ void ChildHandler(int Sig, siginfo_t *Info, void *Pointer)
     int Status, PID, Check = 0, ExitStatus;
     char buffer[BIG_LEN];
 
+    printf("came here too\n");
+
     // Look for any background process that just ended
     while ((PID = waitpid(-1, &Status, WNOHANG | WUNTRACED)) > 0)
     {
@@ -142,7 +151,7 @@ void ChildHandler(int Sig, siginfo_t *Info, void *Pointer)
                     sprintf(buffer, "\n%s with pid [%d] exited normally\n", BGProcesses[i]->name, BGProcesses[i]->PID);
                 write(1, buffer, strlen(buffer));
 
-                // We also check if it has terminated or if it has just been stopeed
+                // We also check if it has terminated or if it has just been stopped
                 if (!WIFSTOPPED(Status))
                     BGProcesses[i]->PID = -1;
                 break;
@@ -162,59 +171,104 @@ void ChildHandler(int Sig, siginfo_t *Info, void *Pointer)
 void fg(char *Input[])
 {
     int Status;
+    int CurrentProcess = getpid();
 
+    // If we have been given more than 1 argument (excluding the word fg itself), it is an error
     if (Input[2] != NULL)
     {
         printf("Error - fg: Too many arguments\n");
         return;
     }
 
+    // If the job number given is invalid
     if (atoi(Input[1]) > NumBGP)
     {
         printf("Error - fg: Process doesn't exist\n");
         return;
     }
 
+    // Convert the job number argument to integer and subtract 1 to account for 0-indexing
     int ProcessNum = atoi(Input[1]) - 1;
 
     int ProcessPID = BGProcesses[ProcessNum]->PID;
+
+    if (ProcessPID == -1)
+    {
+        printf("Error - fg: invalid process\n");
+        return;
+    }
+
     char ProcessName[BASE_LEN];
     strcpy(ProcessName, BGProcesses[ProcessNum]->name);
 
-    BGProcesses[ProcessNum]->PID = -1;
-
+    // Ignoring the signals that are sent when trying to read or write from terminal
     signal(SIGTTOU, SIG_IGN);
     signal(SIGTTIN, SIG_IGN);
 
-    if (tcsetpgrp(STDIN_FILENO, getpgid(ProcessPID)) || kill(ProcessPID, SIGCONT))
+    // Set the process group ID the same as stdout
+    int Error = tcsetpgrp(STDIN_FILENO, getpgid(ProcessPID));
+
+    if (Error)
     {
+        // If we have an error, we set the signal handlers back to default
         signal(SIGTTOU, SIG_DFL);
         signal(SIGTTIN, SIG_DFL);
         printf("Error - fg: Process foregrounding failed\n");
         return;
     }
 
+    // Send the process the signal to continue execution
+    Error = kill(ProcessPID, SIGCONT);
+
+    if (Error)
+    {
+        // If we have an error, we set the signal handlers back to default
+        signal(SIGTTOU, SIG_DFL);
+        signal(SIGTTIN, SIG_DFL);
+        printf("Error - fg: Process foregrounding failed\n");
+        return;
+    }
+
+    // Setting the values for the current foreground process in the event we encounter ctrl+Z
+    CurrentFGP->PID = ProcessPID;
+    strcpy(CurrentFGP->name, ProcessName);
+
+    // Wait for the process to finish execution as it is now a foreground process
     waitpid(ProcessPID, &Status, WUNTRACED);
 
-    if (tcsetpgrp(STDIN_FILENO, getpgid(0)))
+    // Set the vslues back to default
+    strcpy(CurrentFGP->name, "");
+    CurrentFGP->PID = -1;
+
+    Error = tcsetpgrp(STDIN_FILENO, CurrentProcess);
+    if (Error)
     {
         printf("Error - fg: Fatal command foregrounding failure\n");
         ExitFunction();
     }
 
+    // If we have no errors, we set the signal handlers back to default
     signal(SIGTTOU, SIG_DFL);
     signal(SIGTTIN, SIG_DFL);
+
+    if (WIFEXITED(Status))
+    {
+        BGProcesses[ProcessNum]->PID = -1;
+        strcpy(BGProcesses[ProcessNum]->name, "");
+    }
     return;
 }
 
 void bg(char *Input[])
 {
+    // If we have been given more than 1 argument (excluding the word bg itself), it is an error
     if (Input[2] != NULL)
     {
         printf("Error - fg: Too many arguments\n");
         return;
     }
 
+    // If the job number given is invalid
     if (atoi(Input[1]) > NumBGP)
     {
         printf("Error - fg: Process doesn't exist\n");
@@ -223,6 +277,13 @@ void bg(char *Input[])
 
     int ProcessPID = BGProcesses[atoi(Input[1]) - 1]->PID;
 
+    if (ProcessPID == -1)
+    {
+        printf("Error - bg: invalid process\n");
+        return;
+    }
+
+    // We send the the background process the signal to continue execution
     int Error = kill(ProcessPID, SIGCONT);
 
     if (Error == -1)
